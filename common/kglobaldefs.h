@@ -1,0 +1,11 @@
+#ifndef KGLOBALDEFS_H
+#define KGLOBALDEFS_H
+
+#define SERVER_PORT 5301
+
+#define BUFFER_SIZE 1024
+
+#define SEND_TIMEOUT 1000000 //us -> 1000 ms
+#define RECV_TIMEOUT 100000 //us -> 100 ms
+
+#endif // KGLOBALDEFS_H
