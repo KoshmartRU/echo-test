@@ -19,12 +19,6 @@ KServerHandler::KServerHandler() :
 {
     kHost.sin_family = AF_INET;
     kHost.sin_addr.s_addr = INADDR_ANY;
-
-    kSendTimeout.tv_sec = 0;
-    kSendTimeout.tv_usec = SEND_TIMEOUT;
-
-    kRecvTimeout.tv_sec = 0;
-    kRecvTimeout.tv_usec = RECV_TIMEOUT;
 }
 
 KServerHandler::~KServerHandler() {
@@ -68,6 +62,7 @@ bool KServerHandler::initialize(int port) {
     setsockopt(kTCPListenerHandle, SOL_SOCKET, SO_SNDTIMEO, (char*)&kSendTimeout, sizeof(kSendTimeout));
     setsockopt(kTCPListenerHandle, SOL_SOCKET, SO_RCVTIMEO, (char*)&kRecvTimeout, sizeof(kRecvTimeout));
     setsockopt(kTCPListenerHandle, SOL_SOCKET, SO_REUSEADDR, (char*)&yes, sizeof(int));
+    setsockopt(kTCPListenerHandle, SOL_SOCKET, SO_REUSEPORT, (char*)&yes, sizeof(int));
 
     cout << "TCP listener initialized" << endl;
 
@@ -109,15 +104,14 @@ void KServerHandler::listen() {
     ::listen(kTCPListenerHandle, CONNECTION_LIMIT);
 
     //start event loop
-    while(true/* && kIsListening*/) {
+    while(true) {
         //fill client sockets
-        fd_set handleSet;
-        FD_ZERO(&handleSet);
-
-        FD_SET(kTCPListenerHandle, &handleSet);
+        fd_set readSet;
+        FD_ZERO(&readSet);
+        FD_SET(kTCPListenerHandle, &readSet);
         for(const int &clientHandle : kTCPClientHandles)
-            FD_SET(clientHandle, &handleSet);
-        FD_SET(kUDPListenerHandle, &handleSet);
+            FD_SET(clientHandle, &readSet);
+        FD_SET(kUDPListenerHandle, &readSet);
 
         // get socket with event
         timeval timeout;
@@ -126,23 +120,30 @@ void KServerHandler::listen() {
 
         int maxHandle = max(max(kUDPListenerHandle, kTCPListenerHandle),
                             *max_element(kTCPClientHandles.begin(), kTCPClientHandles.end()));
-        int handleCount = select(maxHandle + 1, &handleSet, nullptr, nullptr, &timeout);
-        if(handleCount <= 0) //timeout or error occured
+        int handleCount = select(maxHandle + 1, &readSet, nullptr, nullptr, &timeout);
+        if(handleCount == 0) //timeout occured
             continue;
+
+        if(handleCount < 0) { //error occured
+            cout << "Select failed!" << endl;
+            return;
+        }
 
         //handle events
         //handle TCP listener event
-        if(FD_ISSET(kTCPListenerHandle, &handleSet)) {
+        if(FD_ISSET(kTCPListenerHandle, &readSet)) {
             //accept new socket
             sockaddr_in  clientHost;
-            int clientHostLength;
+            int clientHostLength = sizeof(clientHost);
 
             int socketHandle = accept(kTCPListenerHandle, (sockaddr *)&clientHost, (socklen_t*)&clientHostLength);
             if(socketHandle < 0) {
-                cout << "TCP client socket accept failed!" << endl;
-                return;
+                if(errno != EWOULDBLOCK) {
+                    cout << "Connection  accept failed!" << endl;
+                    return;
+                }
             } else {
-                cout << "TCP client connected: " << inet_ntoa(clientHost.sin_addr) << endl;
+                cout << "Connection accepted: " << inet_ntoa(clientHost.sin_addr) << endl;
 
                 int yes = 1;
                 setsockopt(socketHandle, SOL_SOCKET, SO_SNDTIMEO, (char*)&kSendTimeout, sizeof(kSendTimeout));
@@ -157,47 +158,59 @@ void KServerHandler::listen() {
 
         //echo incoming TCP client messages
         for(const int &clientHandle : kTCPClientHandles) {
-            if(FD_ISSET(clientHandle, &handleSet)) {
-                sockaddr_in  clientHost;
-                int clientHostLength;
-                char buffer[BUFFER_SIZE] = {0};
+            if(FD_ISSET(clientHandle, &readSet)) {
+                sockaddr_in clientHost;
+                int clientHostLength = sizeof(clientHost);
+                getpeername(clientHandle, (struct sockaddr*)&clientHost, (socklen_t*)&clientHostLength);
 
-                int bytesRead = recvAll(clientHandle, buffer, sizeof(buffer), 0);
-                if(bytesRead <= 0) { //client disconnected or error occured
+                char buffer[MESSAGE_SIZE_LIMIT] = {0};
 
-                    getpeername(clientHandle , (struct sockaddr*)&clientHost , (socklen_t*)&clientHostLength);
-                    cout << "Client disconnected: " << inet_ntoa(clientHost.sin_addr) << endl;
-
+                int bytesRead = recv(clientHandle, buffer, sizeof(buffer), 0);
+                if(bytesRead < 0) { //error
+                    if(errno != EWOULDBLOCK) {
+                        cout << "Connection closed due to recv error: " << inet_ntoa(clientHost.sin_addr) << endl;
+                        //erase connection
+                        close(clientHandle);
+                        kTCPClientHandles.erase(clientHandle);
+                    }
+                } else if(bytesRead == 0) { //connection closed
+                    cout << "Connection closed: " << inet_ntoa(clientHost.sin_addr) << endl;
                     //erase connection
                     close(clientHandle);
                     kTCPClientHandles.erase(clientHandle);
-                    continue;
                 } else { //send message back
-                    if(sendAll(clientHandle, buffer, bytesRead, 0) > 0)
-                        cout << "TCP message echoed to client: " << inet_ntoa(clientHost.sin_addr) << endl;
-                    else
-                        cout << "TCP message echo failed to client: " << inet_ntoa(clientHost.sin_addr) << endl;
+                    if(send(clientHandle, buffer, bytesRead, 0) >= 0)
+                        cout << "Message echoed to client by TCP: " << inet_ntoa(clientHost.sin_addr) << endl;
+                    else {
+                        cout << "Message echo to client by TCP failed: " << inet_ntoa(clientHost.sin_addr) << endl;
+                        cout << "Connection closed due to send error: " << inet_ntoa(clientHost.sin_addr) << endl;
+                        //erase connection
+                        close(clientHandle);
+                        kTCPClientHandles.erase(clientHandle);
+                    }
                 }
             }
         }
 
-        //handle UDP listener event
-        if(FD_ISSET(kUDPListenerHandle, &handleSet)) {
+        //handle UDP listener event - echo incoming UDP client messages
+        if(FD_ISSET(kUDPListenerHandle, &readSet)) {
             sockaddr_in  clientHost;
-            int clientHostLength;
-            char buffer[BUFFER_SIZE] = {0};
+            int clientHostLength = sizeof(clientHost);
+            char buffer[MESSAGE_SIZE_LIMIT] = {0};
 
-            int bytesRead = recvAllFrom(kUDPListenerHandle, buffer, sizeof(buffer), 0,
-                                        (sockaddr*)&clientHost, &clientHostLength);
+            int bytesRead = recvfrom(kUDPListenerHandle, buffer, sizeof(buffer), 0,
+                                     (sockaddr*)&clientHost, (socklen_t*)&clientHostLength);
 
             if (bytesRead <= 0) {  //error occured
-                continue;
+                if(errno != EWOULDBLOCK) {
+                    cout << "Message by UDP not received: " << inet_ntoa(clientHost.sin_addr) << endl;
+                }
             } else { //send message back
-                if(sendAllTo(kUDPListenerHandle, buffer, bytesRead, 0,
-                             (sockaddr *)&clientHost, sizeof(clientHost)) > 0)
-                    cout << "UDP message echoed to client: " << inet_ntoa(clientHost.sin_addr) << endl;
+                if(sendto(kUDPListenerHandle, buffer, bytesRead, 0,
+                          (sockaddr *)&clientHost, sizeof(clientHost)) >= 0)
+                    cout << "Message echoed to client by UDP: " << inet_ntoa(clientHost.sin_addr) << endl;
                 else
-                    cout << "UDP message echo failed to client: " << inet_ntoa(clientHost.sin_addr) << endl;
+                    cout << "Message echo to client by UDP failed: " << inet_ntoa(clientHost.sin_addr) << endl;
             }
         }
     }

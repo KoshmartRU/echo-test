@@ -15,8 +15,8 @@ public:
     virtual bool connectToHost(const string &host, int port) = 0;
     virtual void disconnectFromHost() ;
 
-    virtual int write(const string &message) const = 0;
-    virtual int read(string &message) const = 0;
+    virtual int write(const string &message) = 0;
+    virtual int read(string &message) = 0;
 
 protected:
     int kSocketHandle;

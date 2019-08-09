@@ -1,11 +1,13 @@
 #ifndef KGLOBALDEFS_H
 #define KGLOBALDEFS_H
 
-#define SERVER_PORT 5301
+#define SERVER_PORT 4753
 
-#define BUFFER_SIZE 1024
+#define MESSAGE_SIZE_LIMIT 1024
 
-#define SEND_TIMEOUT 1000000 //us -> 1000 ms
-#define RECV_TIMEOUT 100000 //us -> 100 ms
+enum MessageType {
+    Data = 0x5301,
+    Ack = 0x4946
+};
 
 #endif // KGLOBALDEFS_H

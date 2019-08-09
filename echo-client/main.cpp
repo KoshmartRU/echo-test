@@ -2,22 +2,41 @@
 #include "kudpclienthandler.h"
 
 #include <iostream>
+#include "../common/kglobaldefs.h"
 
 #define SERVER_HOST "127.0.0.1"
 
-#include "../common/kglobaldefs.h"
-
 int main() {
     KAbstractClientHandler *handler;
+    string message;
 
-    //initial
-    handler = new KTCPClientHandler();
-    if(handler->connectToHost(SERVER_HOST, SERVER_PORT))
-        cout << "TCP mode initialized" << endl;
-    cout << endl;
+    //set network mode
+    cout << "Set network mode: ";
+    getline(cin, message);
+
+    //parse message
+    if(message == "tcp") { //set tcp mode
+        handler = new KTCPClientHandler();
+        if(handler->connectToHost(SERVER_HOST, SERVER_PORT)) {
+            cout << "TCP mode initialized" << endl << endl;
+        } else {
+            delete handler;
+            return 0;
+        }
+    } else if(message == "udp") { //set udp mode
+        handler = new KUDPClientHandler();
+        if(handler->connectToHost(SERVER_HOST, SERVER_PORT)) {
+            cout << "UDP mode initialized" << endl << endl;
+        } else {
+            delete handler;
+            return 0;
+        }
+    } else {
+        cout << "Mode is unknown" << endl;
+        return 0;
+    }
 
     //event loop
-    string message;
     int messageSize;
 
     while(true) {
@@ -28,37 +47,18 @@ int main() {
         //parse message
         if(message == "/quit") { //quit event loop
             break;
-        } else if(message == "/tcp") { //set tcp mode
-            handler->disconnectFromHost();
-            delete handler;
-
-            handler = new KTCPClientHandler();
-            if(handler->connectToHost(SERVER_HOST, SERVER_PORT))
-                cout << "TCP mode initialized" << endl;
-            cout << endl;
-
-            continue;
-        } else if(message == "/udp") { //set udp mode
-            handler->disconnectFromHost();
-            delete handler;
-
-            handler = new KUDPClientHandler();
-            if(handler->connectToHost(SERVER_HOST, SERVER_PORT))
-                cout << "UDP mode initialized" << endl;
-
-            cout << endl;
-
-            continue;
         } else { //send message
             messageSize = handler->write(message);
             if(messageSize > 0) {
-                cout << "Message send: " << message << " (" << messageSize << " bytes)" << endl;
+                cout << "Message send: " << message << endl;
 
                 messageSize = handler->read(message);
-                if(messageSize > 0)
-                    cout << "Message received: " << message << " (" << messageSize << " bytes)" << endl;
-                else
-                    cout << "Message NOT received, timeout occured" << endl;
+                if(messageSize > 0) {
+                    cout << "Message received: " << message << endl;
+                } else {
+                    cout << "Message NOT received" << endl;
+                    break;
+                }
             }
             cout << endl;
         }

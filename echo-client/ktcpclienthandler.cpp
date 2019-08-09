@@ -1,7 +1,7 @@
 #include "ktcpclienthandler.h"
 
 #include <sys/socket.h>
-
+#include <string.h>
 #include <iostream>
 
 #include "../common/kglobaldefs.h"
@@ -23,7 +23,7 @@ bool KTCPClientHandler::connectToHost(const string &host, int port) {
     //create socket
     kSocketHandle = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if(kSocketHandle < 0) {
-        cout << "TCP socket creation failed!" << endl;
+        cout << "TCP socket creation failed! " << endl;
         return false;
     }
 
@@ -35,7 +35,6 @@ bool KTCPClientHandler::connectToHost(const string &host, int port) {
                 (struct sockaddr *)&kHost,
                 sizeof(kHost)) < 0) {
         kSocketHandle = -1;
-
         cout << "TCP connection to server failed!" << endl;
         return false;
     }
@@ -46,31 +45,63 @@ bool KTCPClientHandler::connectToHost(const string &host, int port) {
 }
 
 
-int KTCPClientHandler::write(const string &message) const {
+int KTCPClientHandler::write(const string &message) {
     if(kSocketHandle < 0) {
         cout << "TCP connection not established!" << endl;
         return -1;
     }
 
-    if (message.size() == 0) {
-        cout << "Message is invalid!" << endl;
-        return -1;
+    int headerSize = sizeof(Header);
+    int messageSize = message.length();
+
+    if (message.size() == 0 || messageSize > (MESSAGE_SIZE_LIMIT - headerSize)) {
+        cout << "Message size is invalid!" << endl;
+        return -2;
     }
 
-    return sendAll(kSocketHandle, message.data(), message.length(), 0);
+    Header header;
+    header.type = MessageType::Data;
+    header.size = messageSize;
+
+    char buffer[MESSAGE_SIZE_LIMIT] = {0};
+    memcpy(buffer, &header, headerSize);
+    memcpy(buffer + headerSize, message.data(), messageSize);
+
+    return sendAll(kSocketHandle, buffer, headerSize + messageSize, 0);
 }
 
-int KTCPClientHandler::read(string &message) const {
+int KTCPClientHandler::read(string &message) {
     if(kSocketHandle < 0) {
         cout << "TCP connection not established!" << endl;
         return -1;
     }
 
-    char buffer[BUFFER_SIZE] = {0};
-    int bytesRead = recvAll(kSocketHandle, buffer, sizeof(buffer), 0);
+    char buffer[MESSAGE_SIZE_LIMIT] = {0};
+    int bytesRead = 0;
+    int headerSize = sizeof(Header);
 
-    if(bytesRead > 0)
-        message = buffer;
+    bytesRead = recvAll(kSocketHandle, buffer, headerSize, 0);
 
-    return bytesRead;
+    if(bytesRead <= 0)
+        return bytesRead;
+
+    //check header
+    Header *header = (Header*)&buffer;
+    if(header->type != MessageType::Data) {
+        cout << "Message type is invalid" << endl;
+        return -2;
+    }
+    if(header->size > MESSAGE_SIZE_LIMIT) {
+        cout << "Message size is too large" << endl;
+        return -2;
+    }
+
+    bytesRead = recvAll(kSocketHandle, buffer + headerSize, header->size , 0);
+
+    if(bytesRead > 0) {
+        message = (buffer + headerSize);
+        return bytesRead + headerSize;
+    } else {
+        return bytesRead;
+    }
 }
