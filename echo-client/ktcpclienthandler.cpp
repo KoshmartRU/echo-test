@@ -82,8 +82,8 @@ int KTCPClientHandler::read(string &message) {
 
     bytesRead = recvAll(kSocketHandle, buffer, headerSize, 0);
 
-    if(bytesRead <= 0)
-        return bytesRead;
+    if(bytesRead < headerSize)
+        return -1;
 
     //check header
     KTCPMessageHeader *header = (KTCPMessageHeader*)&buffer;
@@ -98,10 +98,10 @@ int KTCPClientHandler::read(string &message) {
 
     bytesRead = recvAll(kSocketHandle, buffer + headerSize, header->size , 0);
 
-    if(bytesRead > 0) {
+    if(bytesRead < header->size)
+        return -1;
+    else {
         message = (buffer + headerSize);
         return bytesRead + headerSize;
-    } else {
-        return bytesRead;
     }
 }
