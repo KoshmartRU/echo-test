@@ -56,7 +56,7 @@ int main() {
                 if(messageSize > 0) {
                     cout << "Message received: " << message << endl;
                 } else {
-                    cout << "Message NOT received" << endl;
+                    cout << "Message not received" << endl;
                     break;
                 }
             }

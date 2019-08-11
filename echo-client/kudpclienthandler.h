@@ -7,11 +7,6 @@
 
 class KUDPClientHandler : public KAbstractClientHandler {
 public:
-    struct Header {
-        uint16_t type;
-        uint64_t id;
-    };
-
     KUDPClientHandler();
 
     bool connectToHost(const string &host, int port) override;
@@ -20,9 +15,10 @@ public:
     int read(string &message) override;
 
 private:
+    uint64_t kLastMessageID;
     set<uint64_t> kDatagrammIDs;
 
-    int kMessageCount;
+    uint64_t generateMessageID ();
 };
 
 #endif // KUDPCLIENTHANDLER_H

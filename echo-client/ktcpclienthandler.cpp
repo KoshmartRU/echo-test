@@ -51,7 +51,7 @@ int KTCPClientHandler::write(const string &message) {
         return -1;
     }
 
-    int headerSize = sizeof(Header);
+    int headerSize = sizeof(KTCPMessageHeader);
     int messageSize = message.length();
 
     if (message.size() == 0 || messageSize > (MESSAGE_SIZE_LIMIT - headerSize)) {
@@ -59,7 +59,7 @@ int KTCPClientHandler::write(const string &message) {
         return -2;
     }
 
-    Header header;
+    KTCPMessageHeader header;
     header.type = MessageType::Data;
     header.size = messageSize;
 
@@ -78,7 +78,7 @@ int KTCPClientHandler::read(string &message) {
 
     char buffer[MESSAGE_SIZE_LIMIT] = {0};
     int bytesRead = 0;
-    int headerSize = sizeof(Header);
+    int headerSize = sizeof(KTCPMessageHeader);
 
     bytesRead = recvAll(kSocketHandle, buffer, headerSize, 0);
 
@@ -86,7 +86,7 @@ int KTCPClientHandler::read(string &message) {
         return bytesRead;
 
     //check header
-    Header *header = (Header*)&buffer;
+    KTCPMessageHeader *header = (KTCPMessageHeader*)&buffer;
     if(header->type != MessageType::Data) {
         cout << "Message type is invalid" << endl;
         return -2;
